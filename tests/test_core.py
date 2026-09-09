@@ -933,6 +933,64 @@ class TestBrokerReconciliation:
                    and "broker holds" in r.message
                    for r in caplog.records)
 
+    # ── The divergence must reach the ALERT channel, not just the log ────────
+    #
+    # On 2026-09-08 a PM_US_EQ buy filled while get_order_status() returned
+    # None, so open_trade() was never reached and the position was left
+    # unmanaged at the broker. Reconciliation detected it correctly and logged
+    # CRITICAL every 60s for 29 hours -- about 1,650 times -- but recorded no
+    # system_event, and the documented Grafana alert queries system_events for
+    # severity='critical'. Detection was never the problem; notification was.
+    #
+    # These assert the recording, not the logging, because a CRITICAL log line
+    # that nothing watches is what already failed.
+
+    @patch("monitor.position_monitor.record_system_event")
+    @patch("monitor.position_monitor.get_broker_positions")
+    def test_confirmed_orphan_records_alertable_event(self, mock_broker, mock_event):
+        """A CONFIRMED orphan must record an `orphan_position` system_event."""
+        mock_broker.return_value = {"TSLA_US_EQ": 5.0}
+        self._run_pass([])
+        assert mock_event.call_count == 0, "first sighting must not alert"
+        self._run_pass([])
+        assert mock_event.call_count == 1
+        event_type, detail = mock_event.call_args[0]
+        assert event_type == "orphan_position"
+        assert "TSLA_US_EQ" in detail
+
+    @patch("monitor.position_monitor.record_system_event")
+    @patch("monitor.position_monitor.get_broker_positions")
+    def test_confirmed_phantom_records_alertable_event(self, mock_broker, mock_event):
+        """A CONFIRMED phantom must record a `phantom_position` system_event."""
+        mock_broker.return_value = {}
+        self._run_pass([self._trade(42, "AAPL_US_EQ")])
+        assert mock_event.call_count == 0, "first sighting must not alert"
+        self._run_pass([self._trade(42, "AAPL_US_EQ")])
+        assert mock_event.call_count == 1
+        event_type, detail = mock_event.call_args[0]
+        assert event_type == "phantom_position"
+        assert "AAPL_US_EQ" in detail
+
+    @patch("monitor.position_monitor.record_system_event")
+    @patch("monitor.position_monitor.get_broker_positions")
+    def test_broker_query_failure_alerts_nothing(self, mock_broker, mock_event):
+        """A failed portfolio query is not evidence of a divergence. None must
+        never be read as "broker holds nothing", or every open trade would be
+        alerted as a phantom during a transient API outage."""
+        mock_broker.return_value = None
+        self._run_pass([self._trade(42, "AAPL_US_EQ")])
+        self._run_pass([self._trade(42, "AAPL_US_EQ")])
+        assert mock_event.call_count == 0
+
+    def test_both_divergence_types_are_registered_critical(self):
+        """Severity is derived from membership of _CRITICAL_EVENT_TYPES, and the
+        Grafana alert filters on severity='critical'. Recording an event that
+        lands at 'warning' would reproduce the exact silence being fixed --
+        which is how `claude_truncated_batch` originally shipped mute."""
+        from storage.database import _CRITICAL_EVENT_TYPES
+        assert "orphan_position" in _CRITICAL_EVENT_TYPES
+        assert "phantom_position" in _CRITICAL_EVENT_TYPES
+
     @patch("monitor.position_monitor.get_broker_positions")
     def test_orphan_resolved_between_passes_not_logged(self, mock_broker, caplog):
         """The benign entry race: buy filled, open_trade() committed between
