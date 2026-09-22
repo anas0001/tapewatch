@@ -112,6 +112,11 @@ jobs:
           journalctl -u "${SERVICE_NAME}" --no-pager -o short-iso \
             | grep -i "DKDCA" || echo "(no lines mention DKDCA at all)"
           echo
+          echo "### ALL Pre-market scan/eval/dedupe lines, full retained window ###"
+          journalctl -u "${SERVICE_NAME}" --no-pager -o short-iso \
+            | grep -E "Pre-market (candidate|eval|dedupe|window)|premarket_scan failed|Pre-market candidate evaluation failed" \
+            | tail -1500 || true
+          echo
           echo "### Signal/Gate/funnel-shaped lines, last 400 ###"
           journalctl -u "${SERVICE_NAME}" --no-pager -o short-iso \
             | grep -E "Signal \[|Gate \[|Signal funnel|tradeable positive signal|No positive signals|Risk gate|eligible after filtering" \

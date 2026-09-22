@@ -117,6 +117,15 @@ def main() -> None:
         (cutoff,),
     )
 
+    show(
+        cur,
+        f"premarket_candidates full detail, last {since_days} days",
+        "SELECT id, ticker, catalyst_type, confidence, catalyst_magnitude, "
+        "status, eval_note, created_at FROM premarket_candidates "
+        "WHERE created_at::timestamptz > %s::timestamptz ORDER BY created_at DESC",
+        (cutoff,),
+    )
+
     cur.close()
     conn.close()
     print("\nDone. DB session was opened readonly=True — no write could have been issued.")
