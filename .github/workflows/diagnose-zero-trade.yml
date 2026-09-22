@@ -105,7 +105,17 @@ jobs:
           echo "### CRITICAL / ERROR / traceback / drought / rejected lines ###"
           journalctl -u "${SERVICE_NAME}" --no-pager -o short-iso \
             | grep -iE "CRITICAL|ERROR|Traceback|drought|orphan|phantom|Signal rejected" \
-            | tail -300 || true
+            | grep -v RECONCILIATION \
+            | tail -100 || true
+          echo
+          echo "### Full funnel trace for DKDCA (a specific qualifying candidate) ###"
+          journalctl -u "${SERVICE_NAME}" --no-pager -o short-iso \
+            | grep -i "DKDCA" || echo "(no lines mention DKDCA at all)"
+          echo
+          echo "### Signal/Gate/funnel-shaped lines, last 400 ###"
+          journalctl -u "${SERVICE_NAME}" --no-pager -o short-iso \
+            | grep -E "Signal \[|Gate \[|Signal funnel|tradeable positive signal|No positive signals|Risk gate|eligible after filtering" \
+            | tail -400 || true
           EOF
 
       # The diagnostic query script is a real repo file (scripts/diagnose_zero_trade.py),
